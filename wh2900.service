@@ -1,0 +1,15 @@
+[Unit]
+Description=WH2900 Weather Station Capture Service
+After=network.target log2ram.service
+Wants=log2ram.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/daf/scripts/wh2900
+ExecStart=/bin/bash /home/daf/scripts/wh2900/wh2900_capture.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

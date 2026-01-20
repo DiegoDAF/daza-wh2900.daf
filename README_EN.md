@@ -1,0 +1,130 @@
+# Daza WH2900 - RF Protocol Decoder
+
+Reverse engineering the radio protocol of the Daza WH2900 weather station (Fine Offset WH2900 clone).
+
+## Motivation
+
+The WiFi module on the base station burned out. Instead of replacing it, we decided to intercept the 433 MHz radio signals that the sensors transmit to the base.
+
+## Hardware
+
+- **Weather station:** Daza WH2900
+- **SDR:** CaribouLite Rev2.8 (Raspberry Pi HAT)
+- **Receiver:** Raspberry Pi 4
+- **Frequency:** 433.92 MHz (ISM band)
+
+## Protocol Findings
+
+### Radio Parameters
+- **Modulation:** FSK_PCM
+- **Bitrate:** ~3226 bps (310 µs/bit)
+- **Preamble:** `5555555555516ea1`
+- **Transmission interval:** ~16 seconds
+
+### Packet Types
+
+The station transmits several packet types identified by byte 3:
+
+| Type | Description | Confirmed Data |
+|------|-------------|----------------|
+| 0x13 | Main weather data | Temp, Hum, Wind, Light, UVI, Rain |
+| 0x14 | Secondary data | Light, UVI (other fields TBD) |
+| 0x15 | Tertiary data | Light, UVI (other fields TBD) |
+
+### Type 0x13 Packet Structure
+
+```
+Byte  Content              Formula
+----  -------------------  --------------------------
+0-1   Header               Fixed: 0x21 0x5x
+2     Wind direction       (b[2] & 0x0F) * 22.5 degrees
+3     Packet type          0x13
+4     Temperature          (b[4] - 10) / 10 °C
+5     Humidity             b[5] - 117 %
+6     Wind speed           b[6] / 10 m/s
+7     Gust                 b[7] / 10 m/s
+8-9   Constant             0x3AA0 (identifier?)
+10-11 Light                ((b[10]<<8)|b[11]) / 29 W/m²
+12    UVI                  (b[12] >> 4) & 0x0F
+9     Rain                 (b[9] & 0x0F) * 0.1 mm
+```
+
+**Note:** Atmospheric pressure was not found in any packet type. It may only be measured at the base station.
+
+## Installation
+
+### Requirements
+- Raspberry Pi 4
+- CaribouLite SDR (or other SoapySDR-compatible SDR)
+- rtl_433 compiled with SoapySDR support
+- Python 3
+
+### Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/DiegoDAF/daza-wh2900.daf.git
+cd daza-wh2900.daf
+```
+
+2. Copy scripts to the Pi:
+```bash
+rsync -avz . pi@raspberry:/home/pi/wh2900/
+```
+
+3. Install the systemd service:
+```bash
+sudo cp wh2900.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable wh2900.service
+sudo systemctl start wh2900.service
+```
+
+## Usage
+
+### Packet capture
+The `wh2900.service` automatically captures and saves each packet to `/var/log/wh2900/`.
+
+### Manual decoding
+```bash
+cat /var/log/wh2900/wh2900_*.json | python3 decode_wh2900.py
+```
+
+### Real-time monitoring
+```bash
+journalctl -u wh2900.service -f
+```
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `wh2900_capture.sh` | Main capture script |
+| `wh2900_listener.py` | Parser that saves individual JSONs |
+| `decode_wh2900.py` | Type 0x13 packet decoder |
+| `wh2900.service` | systemd service |
+
+## Project Status
+
+- [x] Identify modulation (FSK_PCM)
+- [x] Decode temperature
+- [x] Decode humidity
+- [x] Decode wind direction
+- [x] Decode solar light
+- [x] Decode UV index
+- [x] Decode rain
+- [ ] Decode wind speed (verification pending)
+- [ ] Decode type 0x14 packets
+- [ ] Decode type 0x15 packets
+- [ ] Find atmospheric pressure
+
+## License
+
+MIT License
+
+## Author
+
+Diego
+
+---
+Made with :heart: and :robot: Claude
