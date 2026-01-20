@@ -51,6 +51,64 @@ Byte  Contenido              Fórmula
 
 **Nota:** La presión atmosférica no se encontró en ningún tipo de paquete. Posiblemente se mide solo en la base.
 
+## Cómo se Descubrió el Protocolo
+
+### Paso 1: Identificar la modulación
+
+```bash
+# Escaneo inicial para detectar señales en 433 MHz
+rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 -A
+```
+
+Esto reveló que la estación usa **FSK_PCM** con pulsos de ~310 µs.
+
+### Paso 2: Capturar paquetes sin filtro de preamble
+
+```bash
+# Capturar 60 segundos de datos crudos
+timeout 60 rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 \
+    -X "n=raw,m=FSK_PCM,s=310,l=310,r=3000,bits>=120" \
+    -F json > /tmp/raw_capture.json
+```
+
+### Paso 3: Encontrar el preamble (prefijo común)
+
+```bash
+# Analizar paquetes y encontrar el prefijo común
+cat /tmp/raw_capture.json | python3 -c "
+import sys, json
+packets = []
+for line in sys.stdin:
+    try:
+        j = json.loads(line.strip())
+        packets.append(j['rows'][0]['data'])
+    except: pass
+
+prefix = packets[0]
+for p in packets[1:]:
+    while not p.startswith(prefix):
+        prefix = prefix[:-1]
+
+print(f'Paquetes: {len(packets)}')
+print(f'Preamble: {prefix}')
+"
+```
+
+Resultado: `5555555555516ea1`
+
+### Paso 4: Capturar con el preamble descubierto
+
+```bash
+# Ahora capturamos solo los paquetes válidos
+rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 \
+    -X "n=wh2900,m=FSK_PCM,s=310,l=310,r=3000,preamble=5555516ea1,bits>=80" \
+    -F json
+```
+
+### Paso 5: Decodificar los campos
+
+Comparando los valores capturados con la pantalla de la consola, se identificaron las fórmulas de cada campo (ver sección "Estructura del Paquete").
+
 ## Instalación
 
 ### Requisitos

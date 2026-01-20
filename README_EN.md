@@ -51,6 +51,64 @@ Byte  Content              Formula
 
 **Note:** Atmospheric pressure was not found in any packet type. It may only be measured at the base station.
 
+## How the Protocol Was Discovered
+
+### Step 1: Identify the modulation
+
+```bash
+# Initial scan to detect signals at 433 MHz
+rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 -A
+```
+
+This revealed that the station uses **FSK_PCM** with ~310 µs pulses.
+
+### Step 2: Capture packets without preamble filter
+
+```bash
+# Capture 60 seconds of raw data
+timeout 60 rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 \
+    -X "n=raw,m=FSK_PCM,s=310,l=310,r=3000,bits>=120" \
+    -F json > /tmp/raw_capture.json
+```
+
+### Step 3: Find the preamble (common prefix)
+
+```bash
+# Analyze packets and find the common prefix
+cat /tmp/raw_capture.json | python3 -c "
+import sys, json
+packets = []
+for line in sys.stdin:
+    try:
+        j = json.loads(line.strip())
+        packets.append(j['rows'][0]['data'])
+    except: pass
+
+prefix = packets[0]
+for p in packets[1:]:
+    while not p.startswith(prefix):
+        prefix = prefix[:-1]
+
+print(f'Packets: {len(packets)}')
+print(f'Preamble: {prefix}')
+"
+```
+
+Result: `5555555555516ea1`
+
+### Step 4: Capture with the discovered preamble
+
+```bash
+# Now capture only valid packets
+rtl_433 -d "driver=Cariboulite" -f 433920000 -g 69 \
+    -X "n=wh2900,m=FSK_PCM,s=310,l=310,r=3000,preamble=5555516ea1,bits>=80" \
+    -F json
+```
+
+### Step 5: Decode the fields
+
+By comparing captured values with the console display, formulas for each field were identified (see "Packet Structure" section).
+
 ## Installation
 
 ### Requirements
