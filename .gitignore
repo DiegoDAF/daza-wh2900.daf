@@ -1,0 +1,13 @@
+# Credentials and secrets
+.env
+*.env
+
+# Integration state files
+.state/
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log

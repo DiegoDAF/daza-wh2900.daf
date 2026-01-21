@@ -23,13 +23,13 @@ El módulo WiFi de la base de la estación se quemó. En lugar de reemplazarlo, 
 
 ### Tipos de Paquetes
 
-La estación transmite varios tipos de paquetes identificados por el byte 3:
+La estación transmite varios tipos de paquetes identificados por el byte 3. El tipo varía según condiciones de luz:
 
-| Tipo | Descripción | Datos confirmados |
-|------|-------------|-------------------|
-| 0x13 | Datos meteorológicos principales | Temp, Hum, Viento, Luz, UVI, Lluvia |
-| 0x14 | Datos secundarios | Luz, UVI (otros campos por decodificar) |
-| 0x15 | Datos terciarios | Luz, UVI (otros campos por decodificar) |
+| Tipo | Descripción | Datos decodificados | Condición |
+|------|-------------|---------------------|-----------|
+| 0x13 (19) | Datos principales | Temp, Hum, Viento, Luz, UVI, Lluvia | Luz baja |
+| 0x14 (20) | Datos secundarios | Temp, Viento, Luz, UVI, Lluvia | Transición |
+| 0x15 (21) | Datos terciarios | Temp, Hum, Viento, Luz, UVI, Lluvia | Luz alta (mediodía) |
 
 ### Estructura del Paquete Tipo 0x13
 
@@ -40,7 +40,7 @@ Byte  Contenido              Fórmula
 2     Dirección del viento   (b[2] & 0x0F) * 22.5 grados
 3     Tipo de paquete        0x13
 4     Temperatura            (b[4] - 10) / 10 °C
-5     Humedad                b[5] - 117 %
+5     Humedad                Ver nota abajo
 6     Velocidad del viento   b[6] / 10 m/s
 7     Ráfaga                 b[7] / 10 m/s
 8-9   Constante              0x3AA0 (identificador?)
@@ -48,6 +48,12 @@ Byte  Contenido              Fórmula
 12    UVI                    (b[12] >> 4) & 0x0F
 9     Lluvia                 (b[9] & 0x0F) * 0.1 mm
 ```
+
+**Nota sobre Humedad:** La estación usa dos formatos de encoding para humedad:
+- Si b[5] >= 128: `humedad = b[5] - 117`
+- Si b[5] < 128: `humedad = b[5] + 32`
+
+El script auto-detecta el formato basándose en el valor de b[5].
 
 **Nota:** La presión atmosférica no se encontró en ningún tipo de paquete. Posiblemente se mide solo en la base.
 
@@ -155,26 +161,108 @@ journalctl -u wh2900.service -f
 
 ## Archivos
 
-| Archivo | Descripción |
+| Archivo | Descripcion |
 |---------|-------------|
 | `wh2900_capture.sh` | Script principal de captura |
 | `wh2900_listener.py` | Parser que guarda JSONs individuales |
 | `decode_wh2900.py` | Decodificador de paquetes tipo 0x13 |
 | `wh2900.service` | Servicio systemd |
+| `integrations/` | Modulo de integraciones con servicios externos |
+
+## Integraciones
+
+El sistema puede enviar datos a servicios meteorologicos externos. Actualmente soporta:
+
+### Weathercloud
+
+Envia datos cada 10 minutos (limite de cuenta gratuita).
+
+**Configuracion:**
+1. Crear cuenta en [weathercloud.net](https://weathercloud.net)
+2. Copiar ID y Key del dispositivo
+3. Crear archivo `.env` en la raiz del proyecto:
+```bash
+WEATHERCLOUD_ID=tu_id
+WEATHERCLOUD_KEY=tu_key
+WEATHERCLOUD_DEVICE=nombre_dispositivo
+```
+
+**Parametros enviados:**
+- Temperatura (temp) - en decimas de grado
+- Humedad (hum) - porcentaje
+- Velocidad del viento (wspd) - en decimas de m/s
+- Direccion del viento (wdir) - grados 0-359
+- Rafaga (wspdhi) - en decimas de m/s
+- Lluvia (rain) - en decimas de mm
+- Radiacion solar (solarrad) - en decimas de W/m2
+- Indice UV (uvi) - 0-15
+
+### Weather Underground
+
+Envia datos cada 1 minuto (sin limite documentado, pero recomendado).
+
+**Configuracion:**
+1. Crear cuenta en [wunderground.com](https://www.wunderground.com)
+2. Registrar estacion en [My Devices](https://www.wunderground.com/member/devices)
+3. Copiar Station ID y Key
+4. Agregar al archivo `.env`:
+```bash
+WUNDERGROUND_ID=tu_station_id
+WUNDERGROUND_KEY=tu_station_key
+```
+
+**Parametros enviados:**
+- Temperatura (tempf) - convertido a Fahrenheit
+- Humedad (humidity) - porcentaje
+- Velocidad del viento (windspeedmph) - convertido a mph
+- Direccion del viento (winddir) - grados 0-360
+- Rafaga (windgustmph) - convertido a mph
+- Lluvia (rainin) - convertido a pulgadas
+- Radiacion solar (solarradiation) - W/m2
+- Indice UV (UV) - 0-15
+
+### Arquitectura de Integraciones
+
+```
+wh2900_to_postgres.py
+    |
+    +-- integrations/
+            |-- base.py          # Clase base con rate limiting via DB
+            |-- weathercloud.py  # Implementacion Weathercloud
+            |-- wunderground.py  # Implementacion Weather Underground
+            |-- manager.py       # Coordinador de servicios
+```
+
+**Rate Limiting:** El estado de cada integracion se guarda en la tabla `integration_state` en PostgreSQL, permitiendo respetar los limites de cada servicio entre ejecuciones del cron.
 
 ## Estado del Proyecto
 
-- [x] Identificar modulación (FSK_PCM)
+### Decodificacion RF
+- [x] Identificar modulacion (FSK_PCM)
 - [x] Decodificar temperatura
 - [x] Decodificar humedad
-- [x] Decodificar dirección del viento
+- [x] Decodificar direccion del viento
 - [x] Decodificar luz solar
-- [x] Decodificar índice UV
+- [x] Decodificar indice UV
 - [x] Decodificar lluvia
-- [ ] Decodificar velocidad del viento (pendiente verificar)
-- [ ] Decodificar paquetes tipo 0x14
-- [ ] Decodificar paquetes tipo 0x15
-- [ ] Encontrar presión atmosférica
+- [x] Decodificar paquetes tipo 0x13 (luz baja)
+- [x] Decodificar paquetes tipo 0x14 (transicion)
+- [x] Decodificar paquetes tipo 0x15 (luz alta)
+- [ ] Verificar velocidad del viento
+- [ ] Encontrar presion atmosferica (posiblemente solo en base)
+
+### Integraciones
+- [x] Arquitectura modular de integraciones
+- [x] Weathercloud
+- [x] Weather Underground
+- [ ] CWOP (Citizen Weather Observer Program)
+- [ ] PWSweather
+- [ ] WOW (UK Met Office)
+- [ ] AWEKAS
+- [ ] OpenWeatherMap
+- [ ] Windy
+- [ ] Windfinder
+- [ ] MQTT (Home Assistant)
 
 ## Licencia
 
