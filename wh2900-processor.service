@@ -1,0 +1,14 @@
+[Unit]
+Description=WH2900 Weather Data Processor
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/daf/scripts/wh2900
+ExecStart=/usr/bin/python3 /home/daf/scripts/wh2900/wh2900_processor.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
