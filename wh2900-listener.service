@@ -1,0 +1,16 @@
+[Unit]
+Description=WH2900 RF Listener (rtl_433)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/daf/scripts/wh2900
+ExecStart=/usr/bin/python3 /home/daf/scripts/wh2900/wh2900_listener_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

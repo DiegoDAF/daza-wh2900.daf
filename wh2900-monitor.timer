@@ -1,0 +1,10 @@
+[Unit]
+Description=WH2900 Station Online Monitor Timer
+
+[Timer]
+OnBootSec=300
+OnUnitActiveSec=900
+AccuracySec=60
+
+[Install]
+WantedBy=timers.target
