@@ -1,0 +1,62 @@
+# WH2900 Processor Configuration
+# Copy this file to wh2900.ini and configure your targets
+
+[general]
+capture_dir = /var/log/wh2900
+# delete_policy: all = solo si todos OK, any = si al menos uno OK, never = nunca borrar
+delete_policy = all
+
+[target_db]
+type = postgres
+active = true
+host = your-postgres-host.example.com
+port = 5432
+dbname = clima
+user = clima
+# password en ~/.pgpass
+
+[target_weathercloud]
+type = http_post
+active = true
+service = weathercloud
+# credenciales en variables de entorno o .env
+id_env = WEATHERCLOUD_ID
+key_env = WEATHERCLOUD_KEY
+# URL pública para verificar estado
+check_url = https://app.weathercloud.net/dYOUR_DEVICE_ID
+
+[target_wunderground]
+type = http_post
+active = true
+service = wunderground
+id_env = WUNDERGROUND_ID
+key_env = WUNDERGROUND_KEY
+# URL pública para verificar estado
+check_url = https://www.wunderground.com/dashboard/pws/YOUR_STATION_ID
+
+[target_pwsweather]
+type = http_post
+active = true
+service = pwsweather
+id_env = PWSWEATHER_ID
+key_env = PWSWEATHER_KEY
+# URL pública para verificar estado
+check_url = https://www.pwsweather.com/station/pws/YOUR_STATION_ID
+
+[target_windguru]
+type = http_post
+active = true
+service = windguru
+# UID de la estación (el nombre, no el ID numérico)
+id_env = WINDGURU_UID
+key_env = WINDGURU_KEY
+# URL pública para verificar estado
+check_url = https://www.windguru.cz/station/YOUR_STATION_ID
+
+# Ejemplo de webhook genérico
+#[target_mi_webhook]
+#type = curlpost
+#active = false
+#url = https://mi-server.com/api/weather
+#api_key_env = MI_WEBHOOK_KEY
+#method = POST

@@ -1,0 +1,14 @@
+[Unit]
+Description=WH2900 Station Online Monitor
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/daf/scripts/wh2900
+ExecStart=/usr/bin/python3 /home/daf/scripts/wh2900/wh2900_monitor.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
