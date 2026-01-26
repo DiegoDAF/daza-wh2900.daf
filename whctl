@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+whctl - CLI para controlar WH2900 processor.
+
+Uso:
+    whctl status          - Muestra estado de targets
+    whctl push [target]   - Fuerza push a un target (o todos si no se especifica)
+    whctl reload          - Recarga configuración
+    whctl test <target>   - Prueba conexión a un target
+"""
+import os
+import sys
+import argparse
+import configparser
+from datetime import datetime
+
+# Agregar path del proyecto
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def load_config():
+    """Carga configuración desde INI."""
+    ini_path = os.path.join(os.path.dirname(__file__), 'wh2900.ini')
+    config = configparser.ConfigParser()
+    config.read(ini_path)
+    return config
+
+def load_env():
+    """Carga variables de entorno desde .env."""
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ.setdefault(key.strip(), value.strip())
+
+def cmd_status(args):
+    """Muestra estado de todos los targets."""
+    config = load_config()
+
+    print("WH2900 - Estado de Targets")
+    print("=" * 50)
+
+    for section in config.sections():
+        if section.startswith('target_'):
+            name = section.replace('target_', '')
+            active = config.getboolean(section, 'active', fallback=False)
+            target_type = config.get(section, 'type', fallback='unknown')
+            service = config.get(section, 'service', fallback='-')
+            check_url = config.get(section, 'check_url', fallback='-')
+
+            status = "ACTIVO" if active else "INACTIVO"
+            print(f"\n[{name}]")
+            print(f"  Estado:  {status}")
+            print(f"  Tipo:    {target_type}")
+            if service != '-':
+                print(f"  Service: {service}")
+            if check_url != '-':
+                print(f"  URL:     {check_url}")
+
+    # Info general
+    capture_dir = config.get('general', 'capture_dir', fallback='/var/log/wh2900')
+    delete_policy = config.get('general', 'delete_policy', fallback='all')
+    print(f"\n{'=' * 50}")
+    print(f"Capture dir:    {capture_dir}")
+    print(f"Delete policy:  {delete_policy}")
+
+    # Contar archivos pendientes
+    try:
+        files = [f for f in os.listdir(capture_dir) if f.endswith('.json')]
+        print(f"Archivos pend:  {len(files)}")
+    except:
+        pass
+
+def cmd_push(args):
+    """Fuerza push a un target específico o todos."""
+    load_env()
+    config = load_config()
+
+    # Importar módulos del proyecto
+    from targets.postgres import PostgresTarget
+    from targets.http_service import HttpServiceTarget
+    from wh2900_processor import load_json_files, decode_packet
+    from targets.base import WeatherRecord
+
+    capture_dir = config.get('general', 'capture_dir', fallback='/var/log/wh2900')
+
+    # Cargar archivos
+    files = load_json_files(capture_dir)
+    if not files:
+        print("No hay archivos para procesar")
+        return
+
+    # Parsear registros
+    records = []
+    for filepath, data in files:
+        decoded = decode_packet(data.get('data', ''))
+        if decoded:
+            record = WeatherRecord(
+                filepath=filepath,
+                filename=os.path.basename(filepath),
+                fecha_medicion=datetime.fromisoformat(data.get('time', datetime.now().isoformat())),
+                raw_json=data,
+                raw_data=data.get('data', ''),
+                rssi=data.get('rssi'),
+                packet_type=decoded.get('packet_type'),
+                temp_c=decoded.get('temp_c'),
+                humidity=decoded.get('humidity'),
+                wind_dir=decoded.get('wind_dir'),
+                wind_speed_ms=decoded.get('wind_speed_ms'),
+                gust_ms=decoded.get('gust_ms'),
+                rain_mm=decoded.get('rain_mm'),
+                light_wm2=decoded.get('light_wm2'),
+                uvi=decoded.get('uvi'),
+            )
+            records.append(record)
+
+    if not records:
+        print("No hay registros válidos")
+        return
+
+    print(f"Registros: {len(records)}")
+
+    # Determinar targets a procesar
+    target_filter = args.target if hasattr(args, 'target') and args.target else None
+
+    for section in config.sections():
+        if not section.startswith('target_'):
+            continue
+
+        name = section.replace('target_', '')
+
+        if target_filter and name != target_filter:
+            continue
+
+        if not config.getboolean(section, 'active', fallback=False):
+            print(f"[{name}] INACTIVO - saltando")
+            continue
+
+        target_type = config.get(section, 'type', fallback='')
+        cfg = dict(config.items(section))
+
+        try:
+            if target_type == 'postgres':
+                target = PostgresTarget(name, cfg)
+            elif target_type == 'http_post':
+                target = HttpServiceTarget(name, cfg)
+                target.last_push_time = None  # Forzar push ignorando rate limit
+            else:
+                print(f"[{name}] Tipo desconocido: {target_type}")
+                continue
+
+            print(f"[{name}] Enviando...")
+            result = target.send(records)
+
+            if result.success:
+                print(f"[{name}] OK - {result.message}")
+            else:
+                print(f"[{name}] FAIL - {result.message}")
+
+        except Exception as e:
+            print(f"[{name}] ERROR - {e}")
+
+def cmd_test(args):
+    """Prueba conexión a un target."""
+    load_env()
+    config = load_config()
+
+    target_name = args.target
+    section = f'target_{target_name}'
+
+    if section not in config.sections():
+        print(f"Target '{target_name}' no encontrado")
+        print(f"Targets disponibles: {[s.replace('target_', '') for s in config.sections() if s.startswith('target_')]}")
+        return
+
+    target_type = config.get(section, 'type', fallback='')
+    cfg = dict(config.items(section))
+
+    print(f"Testeando [{target_name}]...")
+
+    if target_type == 'postgres':
+        from targets.postgres import PostgresTarget
+        target = PostgresTarget(target_name, cfg)
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=cfg.get('host'),
+                port=cfg.get('port', 5432),
+                dbname=cfg.get('dbname'),
+                user=cfg.get('user'),
+            )
+            cur = conn.cursor()
+            cur.execute("select 1")
+            conn.close()
+            print(f"  Conexión: OK")
+        except Exception as e:
+            print(f"  Conexión: FAIL - {e}")
+
+    elif target_type == 'http_post':
+        service = cfg.get('service', '')
+        id_env = cfg.get('id_env', '')
+        key_env = cfg.get('key_env', '')
+
+        service_id = os.getenv(id_env)
+        service_key = os.getenv(key_env)
+
+        print(f"  Service:  {service}")
+        print(f"  ID:       {service_id or 'NO CONFIGURADO'}")
+        print(f"  Key:      {'***' + service_key[-4:] if service_key else 'NO CONFIGURADO'}")
+
+        if service_id and service_key:
+            print(f"  Creds:    OK")
+        else:
+            print(f"  Creds:    FAIL - faltan variables de entorno")
+
+def cmd_reload(args):
+    """Recarga configuración (reinicia servicio)."""
+    import subprocess
+    print("Reiniciando wh2900-processor.service...")
+    result = subprocess.run(['sudo', 'systemctl', 'restart', 'wh2900-processor.service'], capture_output=True)
+    if result.returncode == 0:
+        print("OK - Servicio reiniciado")
+    else:
+        print(f"FAIL - {result.stderr.decode()}")
+
+def main():
+    parser = argparse.ArgumentParser(description='WH2900 Control CLI')
+    subparsers = parser.add_subparsers(dest='command', help='Comandos disponibles')
+
+    # status
+    subparsers.add_parser('status', help='Muestra estado de targets')
+
+    # push
+    push_parser = subparsers.add_parser('push', help='Fuerza push a target(s)')
+    push_parser.add_argument('target', nargs='?', help='Target específico (opcional)')
+
+    # test
+    test_parser = subparsers.add_parser('test', help='Prueba conexión a target')
+    test_parser.add_argument('target', help='Nombre del target')
+
+    # reload
+    subparsers.add_parser('reload', help='Recarga configuración')
+
+    args = parser.parse_args()
+
+    if args.command == 'status':
+        cmd_status(args)
+    elif args.command == 'push':
+        cmd_push(args)
+    elif args.command == 'test':
+        cmd_test(args)
+    elif args.command == 'reload':
+        cmd_reload(args)
+    else:
+        parser.print_help()
+
+if __name__ == '__main__':
+    main()

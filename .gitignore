@@ -1,9 +1,11 @@
 # Credentials and secrets
 .env
 *.env
+.env.backup
 
 # Integration state files
 .state/
+rain_state.json
 
 # Python
 __pycache__/
@@ -11,3 +13,21 @@ __pycache__/
 
 # Logs
 *.log
+
+# Large/binary files
+*.pdf
+*.jpeg
+*.jpg
+*.png
+*.mp4
+cariboulite/
+
+# Editor/IDE
+*.code-workspace
+
+# Capture data
+wh2900_capture.json
+
+# Other projects
+daza-wh2900.daf/
+estacion_meteorologica/
