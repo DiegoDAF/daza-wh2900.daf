@@ -249,6 +249,28 @@ rain_state_file = /var/log/wh2900/rain_state.json
 - Si delta < 0 (reset): envía 0mm y guarda nuevo baseline
 - Si delta > 100mm (error): envía 0mm (probablemente lectura corrupta)
 
+## TODO.md - Convenciones
+
+- Tareas completadas: `[x]` con número
+- Tareas pendientes: `[ ]` con número
+- Sub-tareas pendientes: `[ ]` con número padre + letra (ej: `22a`)
+- Tareas descartadas: `[x]` en la tarea principal + `[x] DESCARTADO` como sub-item, con `[ ]` en lo que quede pendiente derivado
+
+## Conversación activa
+
+La conversación de Claude Code para este proyecto se llama **wh2900-ok**. Usar `/resume` o buscarla por nombre para continuarla.
+
+## whctl - CLI de Control
+
+```bash
+python3 /home/daf/scripts/wh2900/whctl status        # estado de targets
+python3 /home/daf/scripts/wh2900/whctl push [target]  # forzar push a un target (o todos)
+python3 /home/daf/scripts/wh2900/whctl reload         # recargar wh2900.ini
+python3 /home/daf/scripts/wh2900/whctl test <target>  # probar conexión a un target
+```
+
+Para probar cambios en wh2900.ini: editar el ini, luego `whctl reload` en la Pi.
+
 ## Screen Session (obsoleto, usar systemd)
 
 ```bash
